@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Script for Linux
+
+# Function to set up AWS CLI 
+setup() {
+        # Install AWS CLI
+    echo "Installing AWS CLI..."
+    if ! curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    sudo ./aws/install; then
+        echo "Failed to install AWS CLI. Exiting."
+        rm -rf awscliv2.zip aws
+        return 1
+    fi
+
+    # Clean up downloaded files
+    rm -rf awscliv2.zip aws
+    echo "AWS CLI installed successfully."
+
+}
+# Print out regions in the US
+print_out_regions() {
+    regions_array=($(aws ec2 describe-regions --query "Regions[?starts_with(RegionName, 'us-')].RegionName" --output text))
+    for region in "${regions_array[@]}"
+    do
+       echo "$region"
+    done
+}
+
+# Select a region
+check_region() {
+    local selected_region
+    while true; do
+        read -p "Enter your region: " selected_region
+        if [[ " ${regions_array[*]} " =~ " ${selected_region} " ]]; then
+            echo "Region exists."
+            return 0
+        else
+            echo "Region does not exist. Please try again."
+        fi
+    done
+}
+
+# Check if S3 bucket already exists
+check_bucket() {
+    while true; do
+        read -p "Enter a name for your S3 bucket: " bucket_name
+        if [[ ! $bucket_name =~ ^[a-z0-9.-]{3,63}$ ]]; then
+            echo "Invalid bucket name. Bucket names must be between 3 and 63 characters long and can contain only lowercase letters, numbers, hyphens, and periods."
+        elif aws s3api head-bucket --bucket "$bucket_name" 2>/dev/null; then
+            echo "The bucket $bucket_name already exists, please provide another name..."
+        else
+            break
+        fi
+    done
+}
+
+# Create the S3 bucket
+create_bucket() {
+    echo "Creating S3 bucket: $bucket_name in $selected_region"
+    if aws s3api create-bucket --bucket "$bucket_name" --region "$selected_region" \
+        ${selected_region != "us-east-1" ? "--create-bucket-configuration LocationConstraint=$selected_region" : ""}; then
+        echo "Bucket $bucket_name created successfully in $selected_region."
+    else
+        echo "Failed to create bucket $bucket_name in $selected_region. Please check your permissions and try again."
+        return 1
+    fi
+}
+
+# List all S3 buckets
+list_buckets() {
+    echo "Listing all S3 buckets:"
+    if ! aws s3 ls; then
+        echo "Failed to list buckets. Please check your permissions and try again."
+        return 1
+    fi
+}
+
+
+setup
+print_out_regions
+check_region
+check_bucket
+create_bucket
+list_buckets

@@ -1,0 +1,121 @@
+#!/bin/bash
+
+# Function to set up AWS CLI 
+setup() {
+    # Check if AWS CLI exists
+    if ! command -v aws &>/dev/null; then
+        echo "AWS CLI is not installed. Installing..."
+        
+        # Download AWS CLI installer
+        echo "Downloading AWS CLI installer..."
+        if ! curl -sSL "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"; then
+            echo "Failed to download AWS CLI installer. Exiting."
+            return 1
+        fi
+
+        # Verify package signature
+        echo "Verifying package signature..."
+        if ! pkgutil --check-signature AWSCLIV2.pkg; then
+            echo "AWS CLI package signature verification failed. Exiting."
+            rm AWSCLIV2.pkg
+            return 1
+        fi
+
+        echo "Signature verification successful."
+
+        # Install AWS CLI
+        echo "Installing AWS CLI..."
+        if ! sudo installer -pkg AWSCLIV2.pkg -target /; then
+            echo "Failed to install AWS CLI. Exiting."
+            rm AWSCLIV2.pkg
+            return 1
+        fi
+
+        # Clean up downloaded files
+        rm AWSCLIV2.pkg
+        echo "AWS CLI installed successfully."
+    else
+        echo "AWS CLI is already installed."
+    fi
+
+    # Check if AWS credentials are already configured
+    if ! aws sts get-caller-identity &>/dev/null; then
+        echo "AWS credentials not found. Please configure manually:"
+        echo "Run 'aws configure' to set up your credentials."
+        return 1
+    else
+        echo "AWS credentials are already configured."
+    fi
+
+    # Verify AWS CLI version
+    aws_version=$(aws --version 2>&1 | cut -d/ -f2 | cut -d' ' -f1)
+    echo "AWS CLI version: $aws_version"
+    
+    # You might want to check if the version is up-to-date here
+    # This would require maintaining a "minimum version" number in your script
+    
+    echo "Setup completed successfully."
+}
+
+
+# Print out regions in the US
+print_out_regions() {
+    regions_array=($(aws ec2 describe-regions --query "Regions[?starts_with(RegionName, 'us-')].RegionName" --output text))
+    for i in "${regions_array[@]}"
+    do
+       echo "$i"
+    done
+}
+
+# Select a region
+check_region() {
+    local region_exists=false
+    while [[ "$region_exists" = false ]]; do
+        read -p "Enter your region: " selected_region
+        for j in "${regions_array[@]}"
+        do
+            if [[ "$selected_region" == "$j" ]]; then
+                region_exists=true
+                echo "Region exists."
+                break
+            else
+                continue
+            fi
+        done
+    done
+}
+
+# Check if S3 bucket already exists
+check_bucket() {
+    while true; do
+        read -p "Enter a name for your S3 bucket: " bucket_name
+        if aws s3api head-bucket --bucket "$bucket_name" 2>/dev/null; then
+            echo "The bucket $bucket_name already exists, please provide another name..."
+        else
+            break
+        fi
+    done
+}
+
+# Create the S3 bucket
+create_bucket() {
+    echo "Creating S3 bucket: $bucket_name in $selected_region"
+    if [[ $selected_region == "us-east-1" ]]; then
+        aws s3api create-bucket --bucket "$bucket_name" --region us-east-1
+    else
+    aws s3api create-bucket --bucket "$bucket_name" --region "$selected_region" --create-bucket-configuration LocationConstraint="$selected_region"
+    fi
+}
+
+# List all S3 buckets
+list_buckets() {
+    aws s3 ls
+}
+
+
+setup
+print_out_regions
+check_region
+check_bucket
+create_bucket
+list_buckets
